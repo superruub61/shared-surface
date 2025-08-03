@@ -223,13 +223,21 @@ export const InteractiveTable = () => {
   };
 
   // Improved custom object creation
-  const handleCustomObject = (input: string) => {
+  const handleCustomObject = async (input: string) => {
     const trimmed = input.trim();
-    
-    // Simple emoji detection: single character or small set of characters
-  const isSingleChar = Array.from(trimmed).length === 1;
-  const isEmoji = isSingleChar || /[\p{Emoji}\u{1F000}-\u{1F9FF}]/u.test(trimmed);
-    
+
+    if (trimmed === "__reset") {
+      // Reset remote storage and local state
+      await storageService.resetObjects();
+      setObjects([]);
+      toast.success("Table has been reset!");
+      return null; // Prevent adding an object
+    }
+
+    // ...existing code...
+    const isSingleChar = Array.from(trimmed).length === 1;
+    const isEmoji = isSingleChar || /[\p{Emoji}\u{1F000}-\u{1F9FF}]/u.test(trimmed);
+
     return {
       type: isEmoji ? "custom-emoji" : "paper",
       emoji: trimmed,

@@ -190,6 +190,32 @@ class StorageService {
     }
   }
 
+  async resetObjects(): Promise<boolean> {
+    try {
+      // Overwrite the bin with an empty objects array and reset version
+      const emptyData = {
+        objects: [],
+        lastUpdated: new Date().toISOString(),
+        version: 1
+      };
+      const response = await fetch(`${this.BASE_URL}/${this.BIN_ID}`, {
+        method: 'PUT',
+        headers: {
+          'X-Master-Key': this.API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(emptyData),
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      this.cache = emptyData;
+      this.lastVersion = 1;
+      return true;
+    } catch (error) {
+      console.error('Error resetting objects:', error);
+      return false;
+    }
+  }
+
   // Force immediate save (for critical operations like delete)
   async forceSave(): Promise<boolean> {
     clearTimeout((this.debouncedSave as any).timeout);

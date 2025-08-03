@@ -9,7 +9,7 @@ interface ObjectType {
 
 interface ObjectPaletteProps {
   objects: ObjectType[];
-  onCustomObject: (input: string) => ObjectType & { isText?: boolean };
+  onCustomObject: (input: string) => Promise<ObjectType & { isText?: boolean } | null>;
   onAddObject: (objectData: any, position?: { x: number; y: number }) => void;
   isMobile: boolean;
 }
@@ -29,11 +29,13 @@ export const ObjectPalette = ({ objects, onCustomObject, onAddObject, isMobile }
     }
   };
 
-  const handleCustomInput = () => {
+  const handleCustomInput = async () => {
     const input = prompt("Enter an emoji or text for a paper note:");
     if (input && input.trim()) {
-      const customObject = onCustomObject(input.trim());
-      onAddObject(customObject);
+      const customObject = await onCustomObject(input.trim());
+      if (customObject) {
+        onAddObject(customObject);
+      }
     }
   };
 
