@@ -24,7 +24,7 @@ const OBJECT_TYPES = [
 
 // Fixed table aspect ratio (4:3 - width:height)
 const TABLE_ASPECT_RATIO = 4 / 3;
-const TABLE_BASE_WIDTH = 800; // Base width for calculations
+const TABLE_BASE_WIDTH = 800;
 const TABLE_BASE_HEIGHT = TABLE_BASE_WIDTH / TABLE_ASPECT_RATIO; // 600px
 
 export const InteractiveTable = () => {
@@ -38,46 +38,28 @@ export const InteractiveTable = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const syncIntervalRef = useRef<NodeJS.Timeout>();
 
-  // Detect mobile device and calculate scale
+  // Centralized mobile detection and scaling
   useEffect(() => {
-    const checkMobile = () => {
+    const updateLayout = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       
       if (containerRef.current) {
         const containerWidth = containerRef.current.clientWidth;
-        const padding = mobile ? 16 : 24; // Account for padding
+        const padding = mobile ? 16 : 24;
         const availableWidth = containerWidth - (padding * 2);
         
-        // Calculate scale to fit table width
-        const scale = Math.min(availableWidth / TABLE_BASE_WIDTH, 1);
+        // Calculate scale to maintain aspect ratio
+        const maxScale = mobile ? 0.9 : 1.0;
+        const scale = Math.min(availableWidth / TABLE_BASE_WIDTH, maxScale);
         setTableScale(scale);
       }
     };
 
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    updateLayout();
+    window.addEventListener('resize', updateLayout);
+    return () => window.removeEventListener('resize', updateLayout);
   }, []);
-
-  // Convert screen coordinates to table coordinates
-  const screenToTable = (screenX: number, screenY: number) => {
-    if (!tableRef.current) return { x: 0, y: 0 };
-    
-    const rect = tableRef.current.getBoundingClientRect();
-    const x = (screenX - rect.left) / tableScale;
-    const y = (screenY - rect.top) / tableScale;
-    
-    return { x, y };
-  };
-
-  // Convert table coordinates to screen coordinates  
-  const tableToScreen = (tableX: number, tableY: number) => {
-    return {
-      x: tableX * tableScale,
-      y: tableY * tableScale
-    };
-  };
 
   // Helper function to convert TableObject to StoredObject
   const tableObjectToStored = (obj: TableObject) => ({
@@ -99,7 +81,9 @@ export const InteractiveTable = () => {
         const storedObjects = await storageService.loadObjects();
         setObjects(storedObjects);
         setLastSyncTime(new Date());
-        toast.success(`Loaded ${storedObjects.length} objects from storage`);
+        if (storedObjects.length > 0) {
+          toast.success(`Loaded ${storedObjects.length} objects`);
+        }
       } catch (error) {
         console.error('Failed to load objects:', error);
         toast.error('Failed to load saved objects');
@@ -111,9 +95,11 @@ export const InteractiveTable = () => {
     loadStoredObjects();
   }, []);
 
-  // Periodic sync to catch changes from other users
+  // Fixed periodic sync - stable dependency array
   useEffect(() => {
-    syncIntervalRef.current = setInterval(async () => {
+    let syncInterval: NodeJS.Timeout;
+    
+    const performSync = async () => {
       try {
         const currentObjects = objects.map(tableObjectToStored);
         const syncedObjects = await storageService.syncObjects(currentObjects);
@@ -125,51 +111,47 @@ export const InteractiveTable = () => {
       } catch (error) {
         console.error('Background sync failed:', error);
       }
-    }, 5000);
-
-    return () => {
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-      }
-    };
-  }, [objects]);
-
-  // Handle custom emoji events
-  useEffect(() => {
-    const handleCustomEmoji = async (event: CustomEvent) => {
-      const customObject = event.detail;
-      if (!tableRef.current) return;
-      
-      const centerX = TABLE_BASE_WIDTH / 2 - 30;
-      const centerY = TABLE_BASE_HEIGHT / 2 - 30;
-      
-      const newObject: TableObject = {
-        id: `${customObject.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: customObject.type,
-        emoji: customObject.emoji,
-        color: customObject.color,
-        x: centerX,
-        y: centerY,
-        isText: customObject.isText
-      };
-      
-      setObjects(prev => [...prev, newObject]);
-      
-      setIsSaving(true);
-      try {
-        await storageService.addObject(tableObjectToStored(newObject));
-        toast.success(`${customObject.emoji} added and saved`);
-      } catch (error) {
-        toast.error('Failed to save object');
-        setObjects(prev => prev.filter(obj => obj.id !== newObject.id));
-      } finally {
-        setIsSaving(false);
-      }
     };
 
-    window.addEventListener('customEmoji', handleCustomEmoji as EventListener);
-    return () => window.removeEventListener('customEmoji', handleCustomEmoji as EventListener);
-  }, []);
+    syncInterval = setInterval(performSync, 10000); // Reduced frequency for API limits
+    return () => clearInterval(syncInterval);
+  }, []); // Empty dependency array prevents recreation
+
+  // Handle adding objects from palette
+  const handleAddObject = async (objectData: any, position?: { x: number; y: number }) => {
+    const { type, emoji, color, isText } = objectData;
+    
+    // Default to center if no position provided
+    const x = position?.x ?? (TABLE_BASE_WIDTH / 2 - 30);
+    const y = position?.y ?? (TABLE_BASE_HEIGHT / 2 - 30);
+    
+    // Keep within bounds
+    const boundedX = Math.max(0, Math.min(x, TABLE_BASE_WIDTH - 60));
+    const boundedY = Math.max(0, Math.min(y, TABLE_BASE_HEIGHT - 60));
+    
+    const newObject: TableObject = {
+      id: `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type,
+      emoji,
+      color,
+      x: boundedX,
+      y: boundedY,
+      isText
+    };
+    
+    setObjects(prev => [...prev, newObject]);
+    
+    setIsSaving(true);
+    try {
+      await storageService.addObject(tableObjectToStored(newObject));
+      toast.success(`${emoji} added`);
+    } catch (error) {
+      toast.error('Failed to save object');
+      setObjects(prev => prev.filter(obj => obj.id !== newObject.id));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -179,74 +161,18 @@ export const InteractiveTable = () => {
     const objectData = e.dataTransfer.getData("application/json");
     if (!objectData) return;
     
-    const { type, emoji, color, isText } = JSON.parse(objectData);
+    const parsedData = JSON.parse(objectData);
+    const tableRect = tableRef.current.getBoundingClientRect();
     
     // Convert screen coordinates to table coordinates
-    const { x: tableX, y: tableY } = screenToTable(e.clientX, e.clientY);
+    const x = (e.clientX - tableRect.left) / tableScale - 30;
+    const y = (e.clientY - tableRect.top) / tableScale - 30;
     
-    // Adjust for object center and keep within bounds
-    const x = Math.max(0, Math.min(tableX - 30, TABLE_BASE_WIDTH - 60));
-    const y = Math.max(0, Math.min(tableY - 30, TABLE_BASE_HEIGHT - 60));
-    
-    const newObject: TableObject = {
-      id: `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      emoji,
-      color,
-      x,
-      y,
-      isText
-    };
-    
-    setObjects(prev => [...prev, newObject]);
-    
-    setIsSaving(true);
-    try {
-      await storageService.addObject(tableObjectToStored(newObject));
-      toast.success(`${emoji} ${type} placed and saved`);
-    } catch (error) {
-      toast.error('Failed to save object');
-      setObjects(prev => prev.filter(obj => obj.id !== newObject.id));
-    } finally {
-      setIsSaving(false);
-    }
+    await handleAddObject(parsedData, { x, y });
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-  };
-
-  // Handle touch for mobile
-  const handleTouchStart = async (e: React.TouchEvent) => {
-    if (!isMobile) return;
-    
-    // Simple tap to add default object on mobile
-    const touch = e.touches[0];
-    const { x: tableX, y: tableY } = screenToTable(touch.clientX, touch.clientY);
-    
-    const x = Math.max(0, Math.min(tableX - 30, TABLE_BASE_WIDTH - 60));
-    const y = Math.max(0, Math.min(tableY - 30, TABLE_BASE_HEIGHT - 60));
-    
-    // Add a default cup object
-    const newObject: TableObject = {
-      id: `tap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      type: "cup",
-      emoji: "☕",
-      color: "bg-amber-600",
-      x,
-      y,
-      isText: false
-    };
-    
-    setObjects(prev => [...prev, newObject]);
-    
-    try {
-      await storageService.addObject(tableObjectToStored(newObject));
-      toast.success("☕ added");
-    } catch (error) {
-      toast.error('Failed to save object');
-      setObjects(prev => prev.filter(obj => obj.id !== newObject.id));
-    }
   };
 
   const handleObjectMove = async (id: string, newX: number, newY: number) => {
@@ -284,7 +210,7 @@ export const InteractiveTable = () => {
       await storageService.forceSave();
       
       if (removedObject) {
-        toast.success(`${removedObject.emoji} ${removedObject.type} removed`);
+        toast.success(`${removedObject.emoji} removed`);
       }
     } catch (error) {
       toast.error('Failed to remove object');
@@ -296,22 +222,20 @@ export const InteractiveTable = () => {
     }
   };
 
-  const handleCustomEmoji = (input: string, isJustEmoji: boolean) => {
-    const cleanInput = input.replace(/\s/g, '');
-    const emojiRegex = /^[\p{Emoji}\p{Emoji_Modifier}\p{Emoji_Component}\p{Emoji_Modifier_Base}\p{Emoji_Presentation}]$/u;
-    const isSingleEmoji = emojiRegex.test(cleanInput) && cleanInput.length <= 4;
-    const emojiCount = [...cleanInput].filter(char => 
-      /[\p{Emoji}\p{Emoji_Modifier}\p{Emoji_Component}\p{Emoji_Modifier_Base}\p{Emoji_Presentation}]/u.test(char)
-    ).length;
-    const isExactlyOneEmoji = isSingleEmoji && emojiCount === 1;
+  // Improved custom object creation
+  const handleCustomObject = (input: string) => {
+    const trimmed = input.trim();
     
-    const customObject = {
-      type: isExactlyOneEmoji ? "custom-emoji" : "paper",
-      emoji: isExactlyOneEmoji ? cleanInput : input.trim(),
-      color: isExactlyOneEmoji ? "bg-purple-600" : "bg-white",
-      isText: !isExactlyOneEmoji
+    // Simple emoji detection: single character or small set of characters
+  const isSingleChar = Array.from(trimmed).length === 1;
+  const isEmoji = isSingleChar || /[\p{Emoji}\u{1F000}-\u{1F9FF}]/u.test(trimmed);
+    
+    return {
+      type: isEmoji ? "custom-emoji" : "paper",
+      emoji: trimmed,
+      color: isEmoji ? "bg-purple-600" : "bg-white",
+      isText: !isEmoji
     };
-    return customObject;
   };
 
   if (isLoading) {
@@ -319,7 +243,7 @@ export const InteractiveTable = () => {
       <div className="min-h-screen bg-background p-4 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading table objects...</p>
+          <p className="text-muted-foreground">Loading your table...</p>
         </div>
       </div>
     );
@@ -330,10 +254,10 @@ export const InteractiveTable = () => {
       <div className="w-full max-w-none px-4 py-6" ref={containerRef}>
         <div className="mb-6 text-center">
           <h1 className={`${isMobile ? 'text-2xl' : 'text-4xl'} font-bold text-foreground mb-2`}>
-            Interactive Table
+            
           </h1>
           <p className={`text-muted-foreground ${isMobile ? 'text-sm' : 'text-lg'}`}>
-            {isMobile ? 'Tap to add objects. Double-tap to remove.' : 'Drag objects from the palette onto the table. Double-click objects to remove them.'}
+            {isMobile ? '' : ''}
           </p>
           <div className="flex items-center justify-center gap-4 mt-2">
             {isSaving && (
@@ -348,11 +272,14 @@ export const InteractiveTable = () => {
           </div>
         </div>
 
-        {!isMobile && (
-          <div className="mb-8">
-            <ObjectPalette objects={OBJECT_TYPES} onCustomEmoji={handleCustomEmoji} />
-          </div>
-        )}
+        <div className="mb-8">
+          <ObjectPalette 
+            objects={OBJECT_TYPES} 
+            onCustomObject={handleCustomObject}
+            onAddObject={handleAddObject}
+            isMobile={isMobile}
+          />
+        </div>
         
         <div className="flex justify-center">
           <div
@@ -361,8 +288,6 @@ export const InteractiveTable = () => {
             style={{
               width: `${TABLE_BASE_WIDTH * tableScale}px`,
               height: `${TABLE_BASE_HEIGHT * tableScale}px`,
-              transform: `scale(1)`, // Ensure no additional scaling
-              transformOrigin: 'center top',
               background: `
                 radial-gradient(ellipse at center, hsl(var(--table-surface)), hsl(var(--table-shadow))),
                 linear-gradient(45deg, transparent 25%, rgba(0,0,0,0.02) 25%, rgba(0,0,0,0.02) 50%, transparent 50%, transparent 75%, rgba(0,0,0,0.02) 75%)
@@ -371,7 +296,6 @@ export const InteractiveTable = () => {
             }}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
-            onTouchStart={handleTouchStart}
           >
             <div className="absolute inset-4 border-2 border-amber-900/10 rounded-2xl"></div>
             
@@ -397,14 +321,8 @@ export const InteractiveTable = () => {
           </div>
         </div>
 
-        {isMobile && (
-          <div className="mt-6">
-            <ObjectPalette objects={OBJECT_TYPES} onCustomEmoji={handleCustomEmoji} />
-          </div>
-        )}
-
         <div className="mt-6 text-center text-sm text-muted-foreground">
-          <p>Objects on table: {objects.length}</p>
+          <p>{objects.length} objects</p>
           {isMobile && (
             <p className="text-xs mt-1">Scale: {Math.round(tableScale * 100)}%</p>
           )}

@@ -24,17 +24,17 @@ export const DraggableObject = ({
   const objectRef = useRef<HTMLDivElement>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (isMobile) return; // Use touch events on mobile
+    if (isMobile) return;
     startDrag(e.clientX, e.clientY);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    e.preventDefault(); // Prevent scrolling
+    e.preventDefault();
     
     const now = Date.now();
     const timeSinceLast = now - lastTap;
     
-    // Double tap to remove (on mobile)
+    // Double tap to remove
     if (timeSinceLast < 300 && timeSinceLast > 0) {
       onRemove(object.id);
       return;
@@ -50,9 +50,11 @@ export const DraggableObject = ({
 
     const objectRect = objectRef.current.getBoundingClientRect();
     setIsDragging(true);
+    
+    // Calculate offset in scaled coordinates
     setDragOffset({
-      x: clientX - objectRect.left,
-      y: clientY - objectRect.top,
+      x: (clientX - objectRect.left) / scale,
+      y: (clientY - objectRect.top) / scale,
     });
   };
 
@@ -63,7 +65,7 @@ export const DraggableObject = ({
 
   const handleTouchMove = (e: TouchEvent) => {
     if (!isDragging || !tableRef.current) return;
-    e.preventDefault(); // Prevent scrolling
+    e.preventDefault();
     
     const touch = e.touches[0];
     updatePosition(touch.clientX, touch.clientY);
@@ -74,11 +76,11 @@ export const DraggableObject = ({
 
     const tableRect = tableRef.current.getBoundingClientRect();
     
-    // Convert screen coordinates to table coordinates
-    let newX = (clientX - tableRect.left - dragOffset.x) / scale;
-    let newY = (clientY - tableRect.top - dragOffset.y) / scale;
+    // Convert screen coordinates to table coordinates with proper scaling
+    let newX = (clientX - tableRect.left) / scale - dragOffset.x;
+    let newY = (clientY - tableRect.top) / scale - dragOffset.y;
 
-    // Keep object within table bounds (using base dimensions)
+    // Keep object within table bounds
     const maxX = 800 - 60; // TABLE_BASE_WIDTH - object width
     const maxY = 600 - 60; // TABLE_BASE_HEIGHT - object height
     
@@ -97,17 +99,17 @@ export const DraggableObject = ({
   };
 
   const handleDoubleClick = () => {
-    if (!isMobile) { // Only on desktop
+    if (!isMobile) {
       onRemove(object.id);
     }
   };
 
-  // Function to wrap text and limit to 10 lines
+  // Format text for paper objects
   const formatTextForPaper = (text: string) => {
     const words = text.split(' ');
     const lines = [];
     let currentLine = '';
-    const maxCharsPerLine = isMobile ? 8 : 12; // Shorter lines on mobile
+    const maxCharsPerLine = isMobile ? 8 : 12;
     const maxLines = 10;
 
     for (const word of words) {
@@ -155,13 +157,13 @@ export const DraggableObject = ({
         }
       };
     }
-  }, [isDragging, dragOffset, scale]);
+  }, [isDragging, dragOffset, scale, isMobile]);
 
   const isCustomEmoji = object.type === "custom-emoji";
   const isPaper = object.isText && !isCustomEmoji;
   
-  // Scale object size based on screen scale and mobile
-  const objectSize = isMobile ? 50 : 60;
+  // Bigger emoji sizes as requested
+  const objectSize = isMobile ? 55 : 65;
   const scaledSize = objectSize * scale;
 
   return (
@@ -171,17 +173,22 @@ export const DraggableObject = ({
         isDragging 
           ? 'scale-110 shadow-2xl z-10' 
           : 'hover:scale-105 hover:shadow-xl'
-      } ${isPaper ? '' : 'rounded-2xl shadow-lg bg-white/80 border-2 border-border'} ${
+      } ${
+        isPaper 
+          ? '' 
+          : isCustomEmoji 
+            ? '' // No background for custom emojis - free floating
+            : 'rounded-2xl'
+      } ${
         isMobile ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
       }`}
       style={{
         left: `${object.x * scale}px`,
         top: `${object.y * scale}px`,
-        width: isPaper ? 'auto' : `${scaledSize}px`,
-        height: isPaper ? 'auto' : `${scaledSize}px`,
+        width: isPaper ? 'auto' : isCustomEmoji ? 'auto' : `${scaledSize}px`,
+        height: isPaper ? 'auto' : isCustomEmoji ? 'auto' : `${scaledSize}px`,
         transform: isDragging ? 'rotate(5deg)' : 'rotate(0deg)',
-        fontSize: `${scale}rem`, // Scale text with table
-        touchAction: 'none', // Prevent browser touch behaviors
+        touchAction: 'none',
       }}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
@@ -208,7 +215,12 @@ export const DraggableObject = ({
           </div>
         </div>
       ) : (
-        <div style={{ fontSize: `${(isMobile ? 20 : 30) * scale}px` }} className="drop-shadow-sm">
+        <div 
+          style={{ 
+            fontSize: `${(isMobile ? 32 : 40) * scale}px` // Bigger emojis as requested
+          }} 
+          className="drop-shadow-sm"
+        >
           {object.emoji}
         </div>
       )}
